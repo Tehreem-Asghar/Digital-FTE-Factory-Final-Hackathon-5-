@@ -1,0 +1,22 @@
+[project]
+name = "saasflow-digital-fte"
+version = "0.1.0"
+description = "Incubation prototype for SaaSFlow AI Customer Success Agent"
+authors = [
+    {name = "AKE"}
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "python-dotenv>=1.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
