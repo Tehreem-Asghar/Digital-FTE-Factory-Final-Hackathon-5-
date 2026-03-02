@@ -4,14 +4,14 @@
     "channel": "email",
     "customer_email": "jane@startup.io",
     "subject": "Kanban loading error",
-    "content": "Hi, my Kanban board is stuck on a spinner. I tried refreshing but it didn't help. Is the service down?",
+    "content": "Hi, my Kanban board is stuck on a spinner.",
     "sentiment": 0.4
   },
   {
     "id": "TKT-002",
     "channel": "whatsapp",
     "customer_phone": "+123456789",
-    "content": "hey how do i add a new member to my workspace?",
+    "content": "hey how do i add a new member?",
     "sentiment": 0.6
   },
   {
@@ -19,22 +19,60 @@
     "channel": "web_form",
     "customer_email": "finance@corp.com",
     "subject": "Double Charge",
-    "content": "I was charged twice for the Pro plan this month. I need a refund immediately.",
+    "content": "I was charged twice. I need a refund.",
     "sentiment": 0.2
   },
   {
     "id": "TKT-004",
     "channel": "email",
     "customer_email": "dev@tech.com",
-    "subject": "API Webhook question",
-    "content": "Does your API support custom webhooks for automation triggers, or only the built-in Slack integration?",
+    "subject": "API Webhook",
+    "content": "Does your API support custom webhooks?",
     "sentiment": 0.7
   },
   {
     "id": "TKT-005",
     "channel": "whatsapp",
     "customer_phone": "+987654321",
-    "content": "This is total garbage. Your app deleted my project tasks!",
+    "content": "This is garbage. Fix it!",
     "sentiment": 0.1
+  },
+  {
+    "id": "TKT-006",
+    "channel": "web_form",
+    "customer_email": "user@test.com",
+    "subject": "Empty",
+    "content": "",
+    "sentiment": 0.5
+  },
+  {
+    "id": "TKT-007",
+    "channel": "whatsapp",
+    "customer_phone": "+555555555",
+    "content": "How much does the Enterprise plan cost?",
+    "sentiment": 0.6
+  },
+  {
+    "id": "TKT-008",
+    "channel": "email",
+    "customer_email": "legal@competitor.com",
+    "subject": "GDPR",
+    "content": "My lawyer is asking for your DPA document.",
+    "sentiment": 0.3
+  },
+  {
+    "id": "TKT-009",
+    "channel": "whatsapp",
+    "customer_phone": "+111111111",
+    "content": "👍🚀🔥",
+    "sentiment": 0.8
+  },
+  {
+    "id": "TKT-010",
+    "channel": "web_form",
+    "customer_email": "lost@user.com",
+    "subject": "Weather",
+    "content": "What is the weather in London?",
+    "sentiment": 0.5
   }
 ]
