@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: saasflow-digital-fte
+Version: 0.1.0
+Summary: Incubation prototype for SaaSFlow AI Customer Success Agent
+Author: AKE
+Requires-Dist: agents>=1.4.0
+Requires-Dist: aiokafka>=0.13.0
+Requires-Dist: aiosmtplib>=5.1.0
+Requires-Dist: asyncpg>=0.31.0
+Requires-Dist: fastapi>=0.135.1
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: locust>=2.20.0
+Requires-Dist: mcp>=1.0.0
+Requires-Dist: nest-asyncio>=1.6.0
+Requires-Dist: openai>=2.24.0
+Requires-Dist: openai-agents>=0.10.3
+Requires-Dist: pydantic[email]>=2.0.0
+Requires-Dist: pytest>=7.0.0
+Requires-Dist: pytest-asyncio>=0.21.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: uvicorn>=0.41.0
