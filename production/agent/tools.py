@@ -282,29 +282,36 @@ async def create_ticket(input: TicketInput) -> str:
 
 @function_tool
 async def get_customer_history(input: HistoryInput) -> str:
-    """Retrieve customer's conversation history across all channels."""
+    """Retrieve customer's conversation history across all channels (unified cross-channel view)."""
     conn = await get_db_conn()
     try:
         is_email = "@" in input.customer_id
-        
-        if is_email:
-            query = "SELECT id FROM customers WHERE email = $1"
-        else:
-            query = "SELECT id FROM customers WHERE phone = $1"
-            
-        cust_id = await conn.fetchval(query, input.customer_id)
-        
+        cust_id = None
+
+        # 1. Try identifier-based lookup first (cross-channel)
+        id_type = "email" if is_email else "whatsapp"
+        cust_id = await resolve_customer_by_identifier(conn, id_type, input.customer_id)
+
+        # 2. Fallback to direct lookup
+        if not cust_id:
+            if is_email:
+                cust_id = await conn.fetchval("SELECT id FROM customers WHERE email = $1", input.customer_id)
+            else:
+                cust_id = await conn.fetchval("SELECT id FROM customers WHERE phone = $1", input.customer_id)
+
         if not cust_id:
             return "No previous history found for this customer."
 
+        # 3. Pull unified cross-channel history (includes channel info)
         results = await conn.fetch(
-            "SELECT role, content, created_at FROM messages m "
+            "SELECT m.role, m.content, m.channel, m.direction, m.created_at, c.initial_channel "
+            "FROM messages m "
             "JOIN conversations c ON m.conversation_id = c.id "
             "WHERE c.customer_id = $1 "
-            "ORDER BY created_at DESC LIMIT 10",
+            "ORDER BY m.created_at DESC LIMIT 15",
             cust_id
         )
-        
+
         if not results:
             return "No previous history found for this customer."
         return json.dumps([dict(r) for r in results], default=str)

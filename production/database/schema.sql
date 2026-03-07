@@ -103,6 +103,17 @@ CREATE TABLE agent_metrics (
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Pending ingestion table (fail-safe when Kafka is down)
+CREATE TABLE pending_ingestion (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    topic VARCHAR(255) NOT NULL DEFAULT 'fte.tickets.incoming',
+    payload JSONB NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'published', 'failed'
+    retry_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    published_at TIMESTAMP WITH TIME ZONE
+);
+
 -- Indexes for performance
 CREATE INDEX idx_customers_email ON customers(email);
 CREATE INDEX idx_customer_identifiers_value ON customer_identifiers(identifier_value);
@@ -114,3 +125,5 @@ CREATE INDEX idx_messages_channel ON messages(channel);
 CREATE INDEX idx_tickets_status ON tickets(status);
 CREATE INDEX idx_tickets_channel ON tickets(source_channel);
 CREATE INDEX idx_knowledge_embedding ON knowledge_base USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+CREATE INDEX idx_pending_ingestion_status ON pending_ingestion(status);
+CREATE INDEX idx_pending_ingestion_created ON pending_ingestion(created_at);

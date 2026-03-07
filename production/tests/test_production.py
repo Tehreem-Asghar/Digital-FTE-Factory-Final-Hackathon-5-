@@ -145,10 +145,13 @@ class TestAPIEndpoints:
     def client(self):
         """Create a test client with mocked Kafka."""
         from fastapi.testclient import TestClient
-        from production.api.main import app, kafka_producer
-        kafka_producer.start = AsyncMock()
-        kafka_producer.stop = AsyncMock()
-        kafka_producer.publish = AsyncMock()
+        from production.api.main import app
+        mock_producer = AsyncMock()
+        mock_producer.start = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        mock_producer.publish = AsyncMock()
+        mock_producer.health_check = AsyncMock(return_value=True)
+        app.state.kafka_producer = mock_producer
         with TestClient(app) as c:
             yield c
 
@@ -450,7 +453,9 @@ class TestSentimentAnalysis:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_cls.return_value = mock_client
 
-            score = await analyze_sentiment("Thank you so much! This is great!")
+            # Message must be >100 chars to trigger API call (otherwise keyword fallback)
+            long_msg = "Thank you so much! This is great! I really appreciate all the help your team has given me. The product is amazing and works perfectly."
+            score = await analyze_sentiment(long_msg)
             assert score == 0.85
 
 

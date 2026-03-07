@@ -74,14 +74,19 @@ class WhatsAppSubmission(BaseModel):
 async def startup():
     # Initialize shared Kafka producer in app state
     producer = FTEKafkaProducer()
-    await producer.start()
-    app.state.kafka_producer = producer
-    logger.info("Kafka Producer started and attached to app state.")
+    try:
+        await producer.start()
+        app.state.kafka_producer = producer
+        logger.info("Kafka Producer started and attached to app state.")
+    except Exception as e:
+        logger.warning(f"Kafka unavailable at startup, will use fail-safe ingestion: {e}")
+        app.state.kafka_producer = None
 
 @app.on_event("shutdown")
 async def shutdown():
-    if hasattr(app.state, "kafka_producer"):
-        await app.state.kafka_producer.stop()
+    producer = getattr(app.state, "kafka_producer", None)
+    if producer:
+        await producer.stop()
         logger.info("Kafka Producer stopped.")
 
 @app.get("/health")
@@ -139,7 +144,17 @@ async def submit_email_support(submission: EmailSubmission):
             "source": "email_form",
         }
     }
-    await app.state.kafka_producer.publish("fte.tickets.incoming", message_data)
+    producer = getattr(app.state, "kafka_producer", None)
+    if producer:
+        try:
+            await producer.publish("fte.tickets.incoming", message_data)
+        except Exception as e:
+            logger.warning(f"Kafka unavailable for email, saving to pending_ingestion: {e}")
+            from production.database.queries import save_pending_message
+            await save_pending_message("fte.tickets.incoming", message_data)
+    else:
+        from production.database.queries import save_pending_message
+        await save_pending_message("fte.tickets.incoming", message_data)
     return {
         "status": "received",
         "ticket_id": ticket_id,
@@ -184,7 +199,17 @@ async def submit_whatsapp_support(submission: WhatsAppSubmission):
             "source": "whatsapp_form",
         }
     }
-    await app.state.kafka_producer.publish("fte.tickets.incoming", message_data)
+    producer = getattr(app.state, "kafka_producer", None)
+    if producer:
+        try:
+            await producer.publish("fte.tickets.incoming", message_data)
+        except Exception as e:
+            logger.warning(f"Kafka unavailable for whatsapp, saving to pending_ingestion: {e}")
+            from production.database.queries import save_pending_message
+            await save_pending_message("fte.tickets.incoming", message_data)
+    else:
+        from production.database.queries import save_pending_message
+        await save_pending_message("fte.tickets.incoming", message_data)
     return {
         "status": "received",
         "ticket_id": ticket_id,
@@ -388,6 +413,83 @@ async def get_conversation_messages(conversation_id: str):
         return [dict(r) for r in rows]
     finally:
         await conn.close()
+
+# --- Mock Meta WhatsApp Cloud API (for E2E testing) ---
+
+@app.post("/mock/meta/send")
+async def mock_meta_send(request: Request):
+    """Mock Meta WhatsApp Cloud API endpoint for E2E testing.
+    Mirrors the response structure of POST /v17.0/{phone_number_id}/messages."""
+    import uuid as _uuid
+    body = await request.json()
+    to_phone = body.get("to", "unknown")
+    msg_type = body.get("type", "text")
+    return {
+        "messaging_product": "whatsapp",
+        "contacts": [{"input": to_phone, "wa_id": to_phone}],
+        "messages": [{"id": f"wamid.mock_{_uuid.uuid4().hex[:12]}"}]
+    }
+
+
+@app.get("/mock/meta/health")
+async def mock_meta_health():
+    """Health check for the mock Meta server."""
+    return {"status": "ok", "mock": True}
+
+
+@app.get("/metrics/channels")
+async def get_metrics_by_channel():
+    """Return metrics broken down by channel."""
+    conn = await get_db_conn()
+    try:
+        channels = ["email", "whatsapp", "web_form"]
+        result = {}
+        for ch in channels:
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM conversations WHERE initial_channel = $1", ch
+            )
+            escalated = await conn.fetchval(
+                "SELECT COUNT(*) FROM conversations WHERE initial_channel = $1 AND status = 'escalated'", ch
+            )
+            avg_sentiment = await conn.fetchval(
+                "SELECT AVG(sentiment_score) FROM conversations WHERE initial_channel = $1 AND sentiment_score IS NOT NULL", ch
+            )
+            result[ch] = {
+                "total_conversations": total or 0,
+                "escalated": escalated or 0,
+                "avg_sentiment": float(avg_sentiment or 0),
+            }
+        return result
+    finally:
+        await conn.close()
+
+
+@app.get("/customers/lookup")
+async def lookup_customer(email: str = None, phone: str = None):
+    """Lookup customer by email or phone for cross-channel E2E tests."""
+    conn = await get_db_conn()
+    try:
+        customer = None
+        if email:
+            customer = await conn.fetchrow("SELECT * FROM customers WHERE email = $1", email)
+        elif phone:
+            customer = await conn.fetchrow("SELECT * FROM customers WHERE phone = $1", phone)
+
+        if not customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+
+        conversations = await conn.fetch(
+            "SELECT id, initial_channel, status, started_at FROM conversations "
+            "WHERE customer_id = $1 ORDER BY started_at DESC LIMIT 10",
+            customer["id"]
+        )
+        return {
+            **dict(customer),
+            "conversations": [dict(c) for c in conversations]
+        }
+    finally:
+        await conn.close()
+
 
 @app.get("/metrics/summary")
 async def get_metrics_summary():

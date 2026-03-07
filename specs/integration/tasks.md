@@ -7,10 +7,10 @@
 
 **Purpose**: Core infrastructure for data persistence and fail-safe ingestion.
 
-- [ ] T001 Update database schema in `production/database/schema.sql` to include `pending_ingestion` table
-- [ ] T002 Implement `pending_ingestion` queries in `production/database/queries.py`
-- [ ] T003 Implement `recovery_worker.py` in `production/workers/` to push pending data to Kafka
-- [ ] T004 Add Kafka health check utility in `production/utils/kafka_client.py`
+- [x] T001 Update database schema in `production/database/schema.sql` to include `pending_ingestion` table
+- [x] T002 Implement `pending_ingestion` queries in `production/database/queries.py`
+- [x] T003 Implement `recovery_worker.py` in `production/workers/` to push pending data to Kafka
+- [x] T004 Add Kafka health check utility in `production/utils/kafka_client.py`
 
 **Checkpoint**: Foundation ready - Ingestion points can now implement fail-safe logic.
 
@@ -24,9 +24,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Refine `resolve_customer` in `production/workers/message_processor.py` to match phone identifiers
-- [ ] T006 [US1] Update `get_customer_history` tool in `production/agent/tools.py` to pull cross-channel messages
-- [ ] T007 [US1] Ensure `customer_identifiers` table is correctly populated for all channels
+- [x] T005 [US1] Refine `resolve_customer` in `production/workers/message_processor.py` to match phone identifiers
+- [x] T006 [US1] Update `get_customer_history` tool in `production/agent/tools.py` to pull cross-channel messages
+- [x] T007 [US1] Ensure `customer_identifiers` table is correctly populated for all channels
 
 **Checkpoint**: User Story 1 functional - Customers are now unified across channels.
 
@@ -40,10 +40,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] Update `/support/submit` in `production/api/main.py` with fail-safe DB fallback
-- [ ] T009 [US2] Update `/support/email` in `production/api/main.py` with fail-safe DB fallback
-- [ ] T010 [US2] Update `/support/whatsapp` in `production/api/main.py` with fail-safe DB fallback
-- [ ] T011 [P] [US2] Create Locust load test script in `tests/load_test.py`
+- [x] T008 [US2] Update `/support/submit` in `production/api/main.py` with fail-safe DB fallback
+- [x] T009 [US2] Update `/support/email` in `production/api/main.py` with fail-safe DB fallback
+- [x] T010 [US2] Update `/support/whatsapp` in `production/api/main.py` with fail-safe DB fallback
+- [x] T011 [P] [US2] Create Locust load test script in `tests/load_test.py`
 
 **Checkpoint**: User Story 2 functional - System is now resilient to Kafka downtime.
 
@@ -57,9 +57,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T012 [P] [US3] Implement `/mock/meta` endpoints in `production/api/main.py` for WhatsApp testing
-- [ ] T013 [P] [US3] Create automated E2E suite in `tests/test_multichannel_e2e.py`
-- [ ] T014 [US3] Create automated chaos script `tests/chaos_sim.py` to simulate pod kills
+- [x] T012 [P] [US3] Implement `/mock/meta` endpoints in `production/api/main.py` for WhatsApp testing
+- [x] T013 [P] [US3] Create automated E2E suite in `tests/test_multichannel_e2e.py`
+- [x] T014 [US3] Create automated chaos script `tests/chaos_sim.py` to simulate pod kills
 
 **Checkpoint**: All user stories functional and validated.
 
@@ -69,6 +69,6 @@
 
 **Purpose**: Final verification and documentation.
 
-- [ ] T015 [P] Update `RUNBOOK.md` with instructions for recovery and load testing
-- [ ] T016 Final performance audit: ensure P95 latency < 3s in load test logs
-- [ ] T017 Verify all SC-001 to SC-004 criteria in `specs/integration/spec.md`
+- [x] T015 [P] Update `RUNBOOK.md` with instructions for recovery and load testing
+- [x] T016 Final performance audit: ensure P95 latency < 3s in load test logs
+- [x] T017 Verify all SC-001 to SC-004 criteria in `specs/integration/spec.md`

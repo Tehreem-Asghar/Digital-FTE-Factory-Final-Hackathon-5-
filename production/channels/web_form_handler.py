@@ -66,22 +66,24 @@ async def submit_support_form(submission: SupportFormSubmission, request: Reques
     
     # Get the producer from app state to avoid multiple instances hanging
     producer = getattr(request.app.state, "kafka_producer", None)
-    if not producer:
-        # Fallback if state is not set
-        from production.utils.kafka_client import FTEKafkaProducer
-        producer = FTEKafkaProducer()
-        await producer.start()
-        request.app.state.kafka_producer = producer
 
-    try:
-        await producer.publish("fte.tickets.incoming", message_data)
-        return {
-            "ticket_id": ticket_id,
-            "message": "Thank you! Our AI assistant will respond shortly."
-        }
-    except Exception as e:
-        logger.error(f"Failed to publish to Kafka: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error while queueing ticket.")
+    if producer:
+        try:
+            await producer.publish("fte.tickets.incoming", message_data)
+            return {
+                "ticket_id": ticket_id,
+                "message": "Thank you! Our AI assistant will respond shortly."
+            }
+        except Exception as e:
+            logger.warning(f"Kafka unavailable, saving to pending_ingestion: {e}")
+
+    # Fail-safe: save to DB when Kafka is down or producer not available
+    from production.database.queries import save_pending_message
+    await save_pending_message("fte.tickets.incoming", message_data)
+    return {
+        "ticket_id": ticket_id,
+        "message": "Thank you! Your request has been received and will be processed shortly."
+    }
 
 @router.get("/ticket/{ticket_id}")
 async def get_ticket_status(ticket_id: str):

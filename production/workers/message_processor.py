@@ -303,23 +303,39 @@ class UnifiedMessageProcessor:
             logger.error(f"[FALLBACK] Delivery failed for {channel}: {e}")
 
     async def resolve_customer(self, email: str, name: str = None, phone: str = None, channel: str = "web_form") -> str:
-        """Finds or creates a customer in the PostgreSQL DB with cross-channel identity matching."""
+        """Finds or creates a customer in the PostgreSQL DB with cross-channel identity matching.
+
+        Identity Resolution Logic (Spec US1):
+        - If phone matches an existing record, link to that customer_id even if email differs.
+        - Any email discrepancy is logged in customer metadata to preserve history.
+        """
         from production.agent.tools import register_customer_identifier, resolve_customer_by_identifier
         conn = await get_db_conn()
         try:
             customer_id = None
+            matched_via = None
 
-            # 1. Try cross-channel identity matching
-            if email:
-                customer_id = await resolve_customer_by_identifier(conn, "email", email)
-            if not customer_id and phone:
+            # 1. Try cross-channel identity matching (phone first for WhatsApp)
+            if phone:
                 customer_id = await resolve_customer_by_identifier(conn, "whatsapp", phone)
+                if customer_id:
+                    matched_via = "phone"
+            if not customer_id and email:
+                customer_id = await resolve_customer_by_identifier(conn, "email", email)
+                if customer_id:
+                    matched_via = "email"
 
-            # 2. Fallback to direct email lookup
+            # 2. Fallback to direct DB lookups
+            if not customer_id and phone:
+                row = await conn.fetchrow("SELECT id FROM customers WHERE phone = $1", phone)
+                if row:
+                    customer_id = row['id']
+                    matched_via = "phone_direct"
             if not customer_id and email:
                 row = await conn.fetchrow("SELECT id FROM customers WHERE email = $1", email)
                 if row:
                     customer_id = row['id']
+                    matched_via = "email_direct"
 
             # 3. Create new customer if not found
             if not customer_id:
@@ -327,13 +343,37 @@ class UnifiedMessageProcessor:
                     "INSERT INTO customers (email, name, phone) VALUES ($1, $2, $3) RETURNING id",
                     email, name or "Customer", phone
                 )
+                matched_via = "new"
 
-            # 4. Register identifiers for future cross-channel matching
+            # 4. Log email discrepancy if matched via phone but email differs (US1 requirement)
+            if matched_via and "phone" in matched_via and email:
+                existing = await conn.fetchrow("SELECT email, metadata FROM customers WHERE id = $1", customer_id)
+                if existing and existing["email"] and existing["email"] != email:
+                    import json as _json
+                    metadata = _json.loads(existing["metadata"]) if existing["metadata"] else {}
+                    alt_emails = metadata.get("alternate_emails", [])
+                    if email not in alt_emails:
+                        alt_emails.append(email)
+                        metadata["alternate_emails"] = alt_emails
+                        await conn.execute(
+                            "UPDATE customers SET metadata = $1::jsonb WHERE id = $2",
+                            _json.dumps(metadata), customer_id
+                        )
+                        logger.info(f"[IDENTITY] Logged alternate email {email} for customer {customer_id}")
+
+            # 5. Update phone on customer record if missing
+            if phone and customer_id:
+                existing_phone = await conn.fetchval("SELECT phone FROM customers WHERE id = $1", customer_id)
+                if not existing_phone:
+                    await conn.execute("UPDATE customers SET phone = $1 WHERE id = $2", phone, customer_id)
+
+            # 6. Register identifiers for future cross-channel matching
             if email:
                 await register_customer_identifier(conn, customer_id, "email", email)
             if phone:
                 await register_customer_identifier(conn, customer_id, "whatsapp", phone)
 
+            logger.info(f"[IDENTITY] Resolved customer {customer_id} via {matched_via} (email={email}, phone={phone})")
             return str(customer_id)
         finally:
             await conn.close()

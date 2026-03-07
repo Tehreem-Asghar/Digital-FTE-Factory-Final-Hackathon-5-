@@ -33,13 +33,29 @@ class FTEKafkaProducer:
     async def start(self):
         self.producer = AIOKafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            request_timeout_ms=5000,
+            metadata_max_age_ms=5000,
         )
         await self.producer.start()
 
     async def stop(self):
         if self.producer:
             await self.producer.stop()
+
+    async def health_check(self) -> bool:
+        """Check if Kafka is reachable by attempting to connect the producer."""
+        try:
+            if not self.producer:
+                temp = AIOKafkaProducer(
+                    bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                    request_timeout_ms=3000,
+                )
+                await temp.start()
+                await temp.stop()
+            return True
+        except Exception:
+            return False
 
     async def publish(self, topic: str, message: dict):
         if not self.producer:
