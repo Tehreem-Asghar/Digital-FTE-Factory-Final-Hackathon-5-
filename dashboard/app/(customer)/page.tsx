@@ -42,6 +42,7 @@ export default function HelpCenterPage() {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showEmailNotif, setShowEmailNotif] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -78,6 +79,9 @@ export default function HelpCenterPage() {
       }
       setTicketId(data.ticket_id || 'QUEUED');
       setStatus('success');
+      // Show email notification popup
+      setShowEmailNotif(true);
+      setTimeout(() => setShowEmailNotif(false), 6000);
     } catch (err: any) {
       setError(err.message || 'Submission failed');
       setStatus('error');
@@ -94,6 +98,29 @@ export default function HelpCenterPage() {
 
   return (
     <div className="flex flex-col">
+      {/* Email Notification Popup */}
+      {showEmailNotif && (
+        <div className="fixed top-6 right-6 z-50 animate-fade-in">
+          <div className="flex items-start gap-4 px-6 py-5 bg-white rounded-2xl shadow-2xl shadow-slate-300/40 border border-slate-200 max-w-md">
+            <div className="flex-shrink-0 h-12 w-12 rounded-xl bg-green-100 flex items-center justify-center">
+              <Mail size={24} className="text-green-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-slate-900 mb-1">Email Sent Successfully!</p>
+              <p className="text-sm text-slate-500 leading-relaxed">
+                A response has been sent to <span className="font-semibold text-slate-700">{formData.email || formData.phone}</span>. Check your inbox for the AI response with your tracking ID.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowEmailNotif(false)}
+              className="flex-shrink-0 text-slate-400 hover:text-slate-600 transition-colors mt-0.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic Hero Section */}
       <section className="relative pt-16 pb-24 overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 relative">
@@ -106,7 +133,9 @@ export default function HelpCenterPage() {
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">The Digital Age.</span>
             </h1>
             <p className="text-xl md:text-2xl text-slate-500 max-w-3xl mx-auto leading-relaxed">
-              Experience lightning-fast responses powered by Kanbix AI. No queues, no waiting, just solutions.
+              Trusted by <span className="font-bold text-slate-700">15,000+ teams</span> across <span className="font-bold text-slate-700">40+ countries</span>.
+              Experience lightning-fast AI-powered support across <span className="font-bold text-slate-700">Web, Email, and WhatsApp</span>.
+              No queues, no waiting — just solutions in under 30 seconds.
             </p>
           </div>
           
@@ -116,21 +145,21 @@ export default function HelpCenterPage() {
                 <Clock size={32} />
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-3">Sub-30s Response</h3>
-              <p className="text-slate-500 leading-relaxed font-medium">Our AI employee handles 90% of queries in under 30 seconds with 98% accuracy.</p>
+              <p className="text-slate-500 leading-relaxed font-medium">Our AI employee handles <span className="font-bold text-slate-700">90% of queries</span> in under 30 seconds with <span className="font-bold text-slate-700">98% accuracy</span>.</p>
             </div>
             <div className="p-8 bg-white/80 backdrop-blur-md rounded-3xl border border-white shadow-xl shadow-slate-200/30 hover:shadow-2xl hover:-translate-y-1 transition-all group">
               <div className="h-14 w-14 rounded-2xl bg-purple-50 flex items-center justify-center text-purple-600 mb-6 group-hover:bg-purple-600 group-hover:text-white transition-all">
                 <Globe size={32} />
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-3">Omnichannel Flow</h3>
-              <p className="text-slate-500 leading-relaxed font-medium">Start on Web, follow up on WhatsApp, and get email receipts—all synced perfectly.</p>
+              <p className="text-slate-500 leading-relaxed font-medium">Start on Web, follow up on WhatsApp, and get email receipts—all <span className="font-bold text-slate-700">synced perfectly</span>.</p>
             </div>
             <div className="p-8 bg-white/80 backdrop-blur-md rounded-3xl border border-white shadow-xl shadow-slate-200/30 hover:shadow-2xl hover:-translate-y-1 transition-all group">
               <div className="h-14 w-14 rounded-2xl bg-green-50 flex items-center justify-center text-green-600 mb-6 group-hover:bg-green-600 group-hover:text-white transition-all">
                 <ShieldCheck size={32} />
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-3">Enterprise Security</h3>
-              <p className="text-slate-500 leading-relaxed font-medium">Your data is encrypted and managed with bank-grade security protocols.</p>
+              <p className="text-slate-500 leading-relaxed font-medium"><span className="font-bold text-slate-700">SOC 2 Type II compliant</span>. Your data is encrypted with bank-grade security protocols.</p>
             </div>
           </div>
         </div>
@@ -174,8 +203,8 @@ export default function HelpCenterPage() {
             </div>
             <h4 className="text-2xl font-bold mb-2">Need to track?</h4>
             <p className="text-slate-400 text-lg mb-8 leading-relaxed">Already submitted a request? Check your live status here.</p>
-            <Link 
-              href="/portal/status" 
+            <Link
+              href="/portal/status"
               className="inline-flex items-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-900/20"
             >
               Track Ticket <ArrowRight size={20} />
@@ -223,8 +252,19 @@ export default function HelpCenterPage() {
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Live Tracking ID</p>
                   <span className="text-3xl font-mono font-extrabold text-slate-900">{ticketId}</span>
                 </div>
+
+                {/* Email notification banner */}
+                <div className="flex items-center gap-4 p-5 bg-green-50 border border-green-200 rounded-2xl max-w-lg mx-auto">
+                  <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <Mail size={20} className="text-green-600" />
+                  </div>
+                  <p className="text-base text-green-800 font-medium text-left">
+                    An email with the AI response and your tracking ID has been sent to <span className="font-bold">{formData.email || formData.phone}</span>. Check your inbox!
+                  </p>
+                </div>
+
                 <div>
-                  <button 
+                  <button
                     onClick={() => setStatus('idle')}
                     className={`px-10 py-4 text-white rounded-2xl font-bold text-lg hover:scale-105 transition-all shadow-xl bg-gradient-to-r ${getChannelStyles()}`}
                   >
@@ -379,26 +419,26 @@ export default function HelpCenterPage() {
             <p className="text-xl text-slate-500">How we serve our 15,000+ teams worldwide</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12 text-center">
-            <div className="space-y-4 p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
-              <div className="text-blue-600 font-black text-4xl mb-2 italic">01</div>
-              <h4 className="text-xl font-bold text-slate-900">Empathy First</h4>
-              <p className="text-slate-500 leading-relaxed font-medium">We acknowledge your challenges before jumping to technical steps.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-12 text-center">
+            <div className="space-y-3 md:space-y-4 p-4 md:p-6 lg:p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
+              <div className="text-blue-600 font-black text-3xl md:text-4xl mb-2 italic">01</div>
+              <h4 className="text-lg md:text-xl font-bold text-slate-900">Empathy First</h4>
+              <p className="text-sm md:text-base text-slate-500 leading-relaxed font-medium">We acknowledge your challenges before jumping to technical steps.</p>
             </div>
-            <div className="space-y-4 p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
-              <div className="text-indigo-600 font-black text-4xl mb-2 italic">02</div>
-              <h4 className="text-xl font-bold text-slate-900">Radical Honesty</h4>
-              <p className="text-slate-500 leading-relaxed font-medium">If we don't know the answer, we connect you with a human expert immediately.</p>
+            <div className="space-y-3 md:space-y-4 p-4 md:p-6 lg:p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
+              <div className="text-indigo-600 font-black text-3xl md:text-4xl mb-2 italic">02</div>
+              <h4 className="text-lg md:text-xl font-bold text-slate-900">Radical Honesty</h4>
+              <p className="text-sm md:text-base text-slate-500 leading-relaxed font-medium">If we don't know the answer, we connect you with a human expert immediately.</p>
             </div>
-            <div className="space-y-4 p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
-              <div className="text-purple-600 font-black text-4xl mb-2 italic">03</div>
-              <h4 className="text-xl font-bold text-slate-900">No Jargon</h4>
-              <p className="text-slate-500 leading-relaxed font-medium">We speak like teammates, providing clear and actionable instructions.</p>
+            <div className="space-y-3 md:space-y-4 p-4 md:p-6 lg:p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
+              <div className="text-purple-600 font-black text-3xl md:text-4xl mb-2 italic">03</div>
+              <h4 className="text-lg md:text-xl font-bold text-slate-900">No Jargon</h4>
+              <p className="text-sm md:text-base text-slate-500 leading-relaxed font-medium">We speak like teammates, providing clear and actionable instructions.</p>
             </div>
-            <div className="space-y-4 p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
-              <div className="text-emerald-600 font-black text-4xl mb-2 italic">04</div>
-              <h4 className="text-xl font-bold text-slate-900">24/7 Availability</h4>
-              <p className="text-slate-500 leading-relaxed font-medium">Day or night, our AI agent is ready to solve your workflow blockers.</p>
+            <div className="space-y-3 md:space-y-4 p-4 md:p-6 lg:p-8 rounded-3xl bg-white/50 border border-white shadow-sm hover:shadow-lg transition-all">
+              <div className="text-emerald-600 font-black text-3xl md:text-4xl mb-2 italic">04</div>
+              <h4 className="text-lg md:text-xl font-bold text-slate-900">24/7 Availability</h4>
+              <p className="text-sm md:text-base text-slate-500 leading-relaxed font-medium">Day or night, our AI agent is ready to solve your workflow blockers.</p>
             </div>
           </div>
 
@@ -407,9 +447,9 @@ export default function HelpCenterPage() {
               <div className="h-8 w-8 bg-slate-900 rounded-lg"></div>
               <span className="text-xl font-black text-slate-900 tracking-tighter">KANBIX PRO</span>
             </div>
-            <span className="text-xl font-bold text-slate-400 italic font-medium">Trusted by 60,000+ users</span>
+            <span className="text-xl font-bold text-slate-400 italic font-medium">Trusted by <span className="text-slate-700 not-italic">15,000+ teams</span> and <span className="text-slate-700 not-italic">60,000+ users</span></span>
             <div className="flex items-center gap-2 font-bold text-slate-900">
-              <Globe size={20} className="text-blue-500" /> 40+ COUNTRIES
+              <Globe size={20} className="text-blue-500" /> <span className="text-slate-700">40+ COUNTRIES</span>
             </div>
           </div>
         </div>

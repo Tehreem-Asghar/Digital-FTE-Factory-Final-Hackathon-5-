@@ -19,7 +19,9 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
 
 export const api = {
   getTickets: () => fetchApi('/api/tickets'),
+  getTicketDetails: (ticketId: string) => fetchApi(`/api/tickets/${ticketId}`),
   getCustomers: () => fetchApi('/api/customers'),
+  getCustomerDetails: (customerId: string) => fetchApi(`/api/customers/${customerId}`),
   getConversations: () => fetchApi('/api/conversations'),
   getMessages: (conversationId: string) => fetchApi(`/api/conversations/${conversationId}/messages`),
   getDashboardStats: () => fetchApi('/api/dashboard/stats'),

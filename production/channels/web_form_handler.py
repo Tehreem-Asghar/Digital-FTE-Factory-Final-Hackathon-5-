@@ -1,13 +1,13 @@
 # web_form_handler.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import uuid
-from production.utils.kafka_client import FTEKafkaProducer
+import logging
 from production.agent.tools import get_db_conn
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/support", tags=["support-form"])
-kafka_producer = FTEKafkaProducer()
 
 class SupportFormSubmission(BaseModel):
     name: str
@@ -18,9 +18,41 @@ class SupportFormSubmission(BaseModel):
     priority: Optional[str] = "medium"
 
 @router.post("/submit")
-async def submit_support_form(submission: SupportFormSubmission):
-    """Submits a support form and publishes to Kafka."""
-    ticket_id = str(uuid.uuid4())
+async def submit_support_form(submission: SupportFormSubmission, request: Request):
+    """Submits a support form, pre-creates ticket in DB, and publishes to Kafka."""
+    # Pre-create ticket in database so the tracking ID is real and queryable
+    conn = await get_db_conn()
+    try:
+        # Find or create customer
+        cust_id = await conn.fetchval("SELECT id FROM customers WHERE email = $1", submission.email)
+        if not cust_id:
+            cust_id = await conn.fetchval(
+                "INSERT INTO customers (email, name) VALUES ($1, $2) RETURNING id",
+                submission.email, submission.name
+            )
+
+        # Create conversation
+        conv_id = await conn.fetchval(
+            "INSERT INTO conversations (customer_id, initial_channel, status) VALUES ($1, 'web_form', 'active') RETURNING id",
+            cust_id
+        )
+
+        # Create ticket in DB — this is the REAL ticket_id
+        ticket_id = str(await conn.fetchval(
+            "INSERT INTO tickets (customer_id, conversation_id, source_channel, status, priority) "
+            "VALUES ($1, $2, 'web_form', 'open', $3) RETURNING id",
+            cust_id, conv_id, submission.priority or "medium"
+        ))
+
+        # Log the inbound message
+        await conn.execute(
+            "INSERT INTO messages (conversation_id, channel, direction, role, content) "
+            "VALUES ($1, 'web_form', 'inbound', 'customer', $2)",
+            conv_id, submission.message
+        )
+    finally:
+        await conn.close()
+
     message_data = {
         "channel": "web_form",
         "ticket_id": ticket_id,
@@ -32,12 +64,24 @@ async def submit_support_form(submission: SupportFormSubmission):
         "priority": submission.priority
     }
     
-    await kafka_producer.publish("fte.tickets.incoming", message_data)
-    
-    return {
-        "ticket_id": ticket_id,
-        "message": "Thank you! Our AI assistant will respond shortly."
-    }
+    # Get the producer from app state to avoid multiple instances hanging
+    producer = getattr(request.app.state, "kafka_producer", None)
+    if not producer:
+        # Fallback if state is not set
+        from production.utils.kafka_client import FTEKafkaProducer
+        producer = FTEKafkaProducer()
+        await producer.start()
+        request.app.state.kafka_producer = producer
+
+    try:
+        await producer.publish("fte.tickets.incoming", message_data)
+        return {
+            "ticket_id": ticket_id,
+            "message": "Thank you! Our AI assistant will respond shortly."
+        }
+    except Exception as e:
+        logger.error(f"Failed to publish to Kafka: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while queueing ticket.")
 
 @router.get("/ticket/{ticket_id}")
 async def get_ticket_status(ticket_id: str):

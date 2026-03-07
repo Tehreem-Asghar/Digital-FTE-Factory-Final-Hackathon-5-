@@ -28,41 +28,52 @@ def _get_active_key():
     except ImportError:
         return GEMINI_API_KEY
 
+def _rotate_global_client():
+    """Trigger rotation on global client if we hit a rate limit in a tool."""
+    try:
+        from production.agent.customer_success_agent import rotate_client
+        return rotate_client()
+    except ImportError:
+        return GEMINI_API_KEY
+
 async def get_db_conn():
     return await asyncpg.connect(DATABASE_URL)
 
 async def analyze_sentiment(text: str) -> float:
-    """Analyze sentiment using Gemini. Returns 0.0 (very negative) to 1.0 (very positive)."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={_get_active_key()}"
-            payload = {
-                "contents": [{"parts": [{"text": (
-                    f"Analyze the sentiment of this customer message on a scale of 0.0 to 1.0 "
-                    f"where 0.0 is extremely negative/angry and 1.0 is extremely positive/happy. "
-                    f"Return ONLY a decimal number, nothing else.\n\nMessage: {text}"
-                )}]}],
-                "generationConfig": {"temperature": 0.0, "maxOutputTokens": 10}
-            }
-            response = await client.post(url, json=payload)
-            if response.status_code == 200:
-                result = response.json()
-                text_val = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                score = float(text_val)
-                return max(0.0, min(1.0, score))
-    except Exception as e:
-        logger.warning(f"Sentiment analysis failed: {e}, using keyword fallback")
-
-    # Keyword-based fallback (word boundary matching)
+    """Analyze sentiment using keyword fallback first to save Gemini quota."""
+    # Keyword-based analysis (word boundary matching)
     import re
     negative_words = ["angry", "furious", "terrible", "worst", "hate", "sue", "lawyer",
-                      "legal", "scam", "fraud", "stupid", "useless", "damn", "hell"]
+                      "legal", "scam", "fraud", "stupid", "useless", "damn", "hell",
+                      "broken", "waste", "disappointed"]
     text_lower = text.lower()
     neg_count = sum(1 for w in negative_words if re.search(r'\b' + re.escape(w) + r'\b', text_lower))
-    if neg_count >= 3:
-        return 0.1
-    elif neg_count >= 1:
-        return 0.3
+    
+    if neg_count >= 2:
+        return 0.2
+    
+    # Only use API if the message is long and seems complex
+    if len(text) > 100:
+        for attempt in range(2): 
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={_get_active_key()}"
+                    payload = {
+                        "contents": [{"parts": [{"text": (
+                            f"Sentiment of this: {text}. Return ONLY number 0.0 to 1.0."
+                        )}]}],
+                        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 5}
+                    }
+                    response = await client.post(url, json=payload)
+                    if response.status_code == 200:
+                        result = response.json()
+                        text_val = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        return max(0.0, min(1.0, float(text_val)))
+                    elif response.status_code == 429:
+                        _rotate_global_client()
+            except:
+                break
+
     return 0.7
 
 
@@ -127,20 +138,30 @@ async def get_embedding(text: str) -> List[float]:
     ]
     
     last_error = ""
-    async with httpx.AsyncClient() as client:
-        for version, model in attempts:
-            url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:embedContent?key={_get_active_key()}"
-            payload = {
-                "content": {"parts": [{"text": text}]},
-                "outputDimensionality": 768,
-            }
-            try:
-                response = await client.post(url, json=payload)
-                if response.status_code == 200:
-                    return response.json()["embedding"]["values"][:768]
-                last_error = response.text
-            except Exception as e:
-                last_error = str(e)
+    for rotate_attempt in range(2): # Try rotating keys if we hit rate limits
+        async with httpx.AsyncClient() as client:
+            for version, model in attempts:
+                url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:embedContent?key={_get_active_key()}"
+                payload = {
+                    "content": {"parts": [{"text": text}]},
+                    "outputDimensionality": 768,
+                }
+                try:
+                    response = await client.post(url, json=payload)
+                    if response.status_code == 200:
+                        return response.json()["embedding"]["values"][:768]
+                    elif response.status_code == 429:
+                        last_error = f"Rate limit hit on {model}"
+                        break # Exit the model loop to rotate and try again
+                    last_error = response.text
+                except Exception as e:
+                    last_error = str(e)
+            
+            if "Rate limit" in last_error:
+                logger.warning(f"Embeddings hit 429, rotating key (attempt {rotate_attempt+1})")
+                _rotate_global_client()
+            else:
+                break # Not a rate limit, or we're done
                 
     raise Exception(f"All embedding attempts failed. Last error: {last_error}")
 
@@ -393,7 +414,7 @@ async def send_response(input: ResponseInput) -> str:
                 delivery_error = "No phone number found for WhatsApp delivery"
                 print("[ERROR] No target phone found for this customer.")
 
-        elif channel.lower() == "email":
+        elif channel.lower() in ("email", "web_form"):
             if customer_email:
                 try:
                     gmail = GmailHandler()
@@ -404,7 +425,14 @@ async def send_response(input: ResponseInput) -> str:
                         conv_id
                     ) if conv_id else None
                     subject = f"Re: {subject_row[:50]}" if subject_row else "SaaSFlow Support Response"
-                    resp = await gmail.send_email_smtp(customer_email, subject, formatted_message)
+                    # Append tracking ID to the email body
+                    email_body = (
+                        f"{formatted_message}\n\n"
+                        f"---\n"
+                        f"Your Tracking ID: {input.ticket_id}\n"
+                        f"Track your request at: http://localhost:3000/portal/status"
+                    )
+                    resp = await gmail.send_email_smtp(customer_email, subject, email_body)
                     print(f"[SUCCESS] Email sent to {customer_email}: {resp}")
                 except Exception as e:
                     delivery_status = "failed"

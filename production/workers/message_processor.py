@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from production.utils.kafka_client import FTEKafkaConsumer, FTEKafkaProducer
 from production.agent.customer_success_agent import (
-    customer_success_agent, get_run_config, get_next_api_key, external_client
+    customer_success_agent, get_run_config, rotate_client
 )
 from agents import Runner
 from production.agent.tools import get_db_conn
@@ -13,8 +13,8 @@ from production.agent.tools import get_db_conn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 3
-RETRY_BASE_DELAY = 20  # seconds (Gemini free tier resets per-minute)
+MAX_RETRIES = 5
+RETRY_BASE_DELAY = 60  # seconds (Wait full minute for quota reset)
 
 class UnifiedMessageProcessor:
     """Consumes messages from Kafka and runs the Digital FTE Agent."""
@@ -59,6 +59,9 @@ class UnifiedMessageProcessor:
             # 3. Run Agent (OpenAI SDK + Gemini) with retry on rate limit
             enriched_content = f"[CONTEXT: identifier={identifier}, channel={channel}] User Message: {content}"
 
+            from production.agent.customer_success_agent import _all_api_keys
+            num_keys = len(_all_api_keys)
+
             result = None
             for attempt in range(MAX_RETRIES + 1):
                 try:
@@ -74,21 +77,35 @@ class UnifiedMessageProcessor:
                     break  # Success, exit retry loop
                 except Exception as run_err:
                     err_str = str(run_err)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate" in err_str.lower():
+                    is_rate_limit = any(x in err_str or x in err_str.lower() for x in ["429", "RESOURCE_EXHAUSTED", "too many requests", "rate_limit"])
+                    
+                    if is_rate_limit:
                         if attempt < MAX_RETRIES:
-                            # Rotate to next API key and retry
-                            new_key = get_next_api_key()
-                            external_client.api_key = new_key
-                            delay = RETRY_BASE_DELAY * (attempt + 1)
-                            logger.warning(
-                                f"[RATE LIMIT] 429 hit on attempt {attempt+1}/{MAX_RETRIES+1}. "
-                                f"Rotating API key and retrying in {delay}s..."
-                            )
+                            new_key = rotate_client()
+                            config = get_run_config()
+                            masked_key = f"{new_key[:6]}...{new_key[-4:]}"
+                            
+                            # If we still have keys to try in this "round", don't wait 60s
+                            if attempt < num_keys:
+                                delay = 2 # Small gap to avoid burst limit
+                                logger.warning(f"[QUOTA] Hit limit. Trying next key {masked_key} in {delay}s...")
+                            else:
+                                delay = RETRY_BASE_DELAY
+                                logger.warning(f"[QUOTA] All keys likely throttled. Waiting {delay}s for reset...")
+                            
                             await asyncio.sleep(delay)
+                            continue
                         else:
-                            raise  # All retries exhausted
+                            raise
                     else:
-                        raise  # Non-rate-limit error, don't retry
+                        # Non-rate limit error (e.g. 404, 500)
+                        logger.error(f"[AGENT ERROR] {err_str}")
+                        if attempt < MAX_RETRIES:
+                            rotate_client()
+                            config = get_run_config()
+                            await asyncio.sleep(1)
+                            continue
+                        raise
 
             if result is None:
                 raise Exception("Agent run returned no result after retries")
@@ -204,7 +221,17 @@ class UnifiedMessageProcessor:
             # 4. FALLBACK DELIVERY — if agent didn't call send_response, deliver ourselves
             if final_msg and not agent_called_send:
                 logger.info(f"[FALLBACK] Agent didn't call send_response. Delivering {channel} message directly.")
-                await self._fallback_deliver(channel, customer_email, customer_phone, final_msg)
+                # Include tracking ID in the message if available
+                msg_ticket_id = message.get("ticket_id")
+                if msg_ticket_id:
+                    tracking_footer = (
+                        f"\n\n---\nYour Tracking ID: {msg_ticket_id}\n"
+                        f"Track your request at: http://localhost:3000/portal/status"
+                    )
+                    final_msg_with_tracking = final_msg + tracking_footer
+                else:
+                    final_msg_with_tracking = final_msg
+                await self._fallback_deliver(channel, customer_email, customer_phone, final_msg_with_tracking)
 
             # 5. Extract token usage from agent result
             tokens_used = 0

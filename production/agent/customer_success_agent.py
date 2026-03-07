@@ -35,17 +35,37 @@ def get_next_api_key() -> str:
 def get_current_api_key() -> str:
     return _current_key
 
-external_client = AsyncOpenAI(
-    api_key=_current_key,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-)
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-# Use gemini-2.0-flash for higher free-tier quota (separate from 2.5-flash)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-model = OpenAIChatCompletionsModel(
-    model=GEMINI_MODEL,
-    openai_client=external_client
-)
+# Use gemini-2.0-flash (found to be working on this endpoint)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+def _make_client(api_key: str) -> AsyncOpenAI:
+    """Create a new AsyncOpenAI client with max_retries=0 to prevent SDK from wasting keys."""
+    # Mask key for logging
+    masked_key = f"{api_key[:6]}...{api_key[-4:]}"
+    print(f"[DEBUG] Creating new Gemini client with key: {masked_key}")
+    return AsyncOpenAI(
+        api_key=api_key,
+        base_url=GEMINI_BASE_URL,
+        max_retries=0,  # We handle retries ourselves with key rotation
+    )
+
+def _make_model(client: AsyncOpenAI) -> OpenAIChatCompletionsModel:
+    return OpenAIChatCompletionsModel(model=GEMINI_MODEL, openai_client=client)
+
+external_client = _make_client(_current_key)
+model = _make_model(external_client)
+
+def rotate_client():
+    """Rotate to next API key and rebuild client+model so the agent uses the new key."""
+    global external_client, model
+    new_key = get_next_api_key()
+    external_client = _make_client(new_key)
+    model = _make_model(external_client)
+    # Update the agent's internal model as well
+    customer_success_agent.model = model
+    return new_key
 
 from production.agent.tools import (
     search_knowledge_base,
@@ -70,7 +90,7 @@ customer_success_agent = Agent(
 )
 
 def get_run_config():
-    """Returns the run configuration for the agent."""
+    """Returns the run configuration for the agent, always using the current (possibly rotated) client."""
     return RunConfig(
         model=model,
         model_provider=external_client,

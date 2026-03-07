@@ -66,16 +66,16 @@ export default function AnalyticsPage() {
   ];
 
   return (
-    <div className="space-y-10 animate-fade-in">
+    <div className="space-y-6 sm:space-y-8 lg:space-y-10 animate-fade-in">
       <div>
-        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Analytics & Insights</h1>
-        <p className="text-lg text-slate-500 mt-1">Deep dive into agent performance and ticket trends</p>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Analytics & Insights</h1>
+        <p className="text-base sm:text-lg text-slate-500 mt-1">Deep dive into agent performance and ticket trends</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-          <h2 className="text-xl font-bold text-slate-900 mb-8">Average Response Time (min)</h2>
-          <div className="h-[350px]">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-10">
+        <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-4 sm:mb-8">Average Response Time (min)</h2>
+          <div className="h-[280px] sm:h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={responseTimeData}>
                 <defs>
@@ -85,9 +85,9 @@ export default function AnalyticsPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 14, fontWeight: 600}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 14, fontWeight: 600}} dx={-10} />
-                <Tooltip 
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12, fontWeight: 600}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12, fontWeight: 600}} dx={-10} />
+                <Tooltip
                   contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}}
                   itemStyle={{fontWeight: 'bold', color: '#1e40af'}}
                 />
@@ -97,15 +97,15 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-          <h2 className="text-xl font-bold text-slate-900 mb-8">Daily Ticket Volume</h2>
-          <div className="h-[350px]">
+        <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-4 sm:mb-8">Daily Ticket Volume</h2>
+          <div className="h-[280px] sm:h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={volumeData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 14, fontWeight: 600}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 14, fontWeight: 600}} dx={-10} />
-                <Tooltip 
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12, fontWeight: 600}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12, fontWeight: 600}} dx={-10} />
+                <Tooltip
                   contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}}
                   cursor={{fill: '#f1f5f9'}}
                 />
@@ -116,17 +116,17 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
-          <h2 className="text-xl font-bold text-slate-900 mb-8">By Channel</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 lg:gap-10">
+        <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
+          <h2 className="text-base sm:text-xl font-bold text-slate-900 mb-4 sm:mb-8">By Channel</h2>
           <ChannelPieChart data={stats.charts.by_channel} />
         </div>
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
-          <h2 className="text-xl font-bold text-slate-900 mb-8">By Status</h2>
+        <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
+          <h2 className="text-base sm:text-xl font-bold text-slate-900 mb-4 sm:mb-8">By Status</h2>
           <StatusBarChart data={stats.charts.by_status} />
         </div>
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
-          <h2 className="text-xl font-bold text-slate-900 mb-8">By Priority</h2>
+        <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all text-center">
+          <h2 className="text-base sm:text-xl font-bold text-slate-900 mb-4 sm:mb-8">By Priority</h2>
           <PriorityChart data={stats.charts.by_priority} />
         </div>
       </div>
