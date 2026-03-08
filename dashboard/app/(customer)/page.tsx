@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { 
   Send, 
@@ -39,10 +39,54 @@ export default function HelpCenterPage() {
     category: 'general',
     message: ''
   });
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'polling' | 'responded' | 'error'>('idle');
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEmailNotif, setShowEmailNotif] = useState(false);
+  const [agentResponse, setAgentResponse] = useState<string | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<any[]>([]);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollCountRef = useRef(0);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  // Start polling for web form AI response
+  const startPolling = (tid: string) => {
+    setStatus('polling');
+    pollCountRef.current = 0;
+
+    pollingRef.current = setInterval(async () => {
+      pollCountRef.current += 1;
+
+      // Stop after 60 polls (~3 minutes)
+      if (pollCountRef.current > 60) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setStatus('success'); // Fallback to normal success view
+        return;
+      }
+
+      try {
+        const data = await api.getTicketStatus(tid);
+        if (data.messages && data.messages.length > 0) {
+          setConversationMessages(data.messages);
+          // Check if there's an agent (outbound) response
+          const agentMsg = data.messages.find((m: any) => m.role === 'agent');
+          if (agentMsg) {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+            setAgentResponse(agentMsg.content);
+            setStatus('responded');
+          }
+        }
+      } catch {
+        // Silently retry on poll failure
+      }
+    }, 3000);
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -77,11 +121,18 @@ export default function HelpCenterPage() {
           message: formData.message
         });
       }
-      setTicketId(data.ticket_id || 'QUEUED');
-      setStatus('success');
-      // Show email notification popup
-      setShowEmailNotif(true);
-      setTimeout(() => setShowEmailNotif(false), 6000);
+      const tid = data.ticket_id || 'QUEUED';
+      setTicketId(tid);
+
+      if (activeChannel === 'web' && tid !== 'QUEUED') {
+        // Web form: poll for on-screen response
+        startPolling(tid);
+      } else {
+        // Email / WhatsApp: show success + notification
+        setStatus('success');
+        setShowEmailNotif(true);
+        setTimeout(() => setShowEmailNotif(false), 6000);
+      }
     } catch (err: any) {
       setError(err.message || 'Submission failed');
       setStatus('error');
@@ -98,17 +149,22 @@ export default function HelpCenterPage() {
 
   return (
     <div className="flex flex-col">
-      {/* Email Notification Popup */}
-      {showEmailNotif && (
+      {/* Email/WhatsApp Notification Popup (not shown for web form) */}
+      {showEmailNotif && activeChannel !== 'web' && (
         <div className="fixed top-6 right-6 z-50 animate-fade-in">
           <div className="flex items-start gap-4 px-6 py-5 bg-white rounded-2xl shadow-2xl shadow-slate-300/40 border border-slate-200 max-w-md">
             <div className="flex-shrink-0 h-12 w-12 rounded-xl bg-green-100 flex items-center justify-center">
-              <Mail size={24} className="text-green-600" />
+              {activeChannel === 'whatsapp' ? <MessageCircle size={24} className="text-green-600" /> : <Mail size={24} className="text-green-600" />}
             </div>
             <div className="flex-1">
-              <p className="text-sm font-bold text-slate-900 mb-1">Email Sent Successfully!</p>
+              <p className="text-sm font-bold text-slate-900 mb-1">
+                {activeChannel === 'whatsapp' ? 'WhatsApp Message Queued!' : 'Email Sent Successfully!'}
+              </p>
               <p className="text-sm text-slate-500 leading-relaxed">
-                A response has been sent to <span className="font-semibold text-slate-700">{formData.email || formData.phone}</span>. Check your inbox for the AI response with your tracking ID.
+                {activeChannel === 'whatsapp'
+                  ? <>A response will be sent to <span className="font-semibold text-slate-700">{formData.phone}</span> on WhatsApp.</>
+                  : <>A response has been sent to <span className="font-semibold text-slate-700">{formData.email}</span>. Check your inbox for the AI response.</>
+                }
               </p>
             </div>
             <button
@@ -218,19 +274,19 @@ export default function HelpCenterPage() {
             {/* Form Headers / Tabs */}
             <div className="flex p-3 bg-slate-100/50 border-b border-slate-100">
               <button 
-                onClick={() => { setActiveChannel('web'); setStatus('idle'); }}
+                onClick={() => { setActiveChannel('web'); setStatus('idle'); if (pollingRef.current) clearInterval(pollingRef.current); }}
                 className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-bold transition-all ${activeChannel === 'web' ? 'bg-white text-purple-600 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
               >
                 <MessageSquare size={20} /> Web
               </button>
               <button 
-                onClick={() => { setActiveChannel('email'); setStatus('idle'); }}
+                onClick={() => { setActiveChannel('email'); setStatus('idle'); if (pollingRef.current) clearInterval(pollingRef.current); }}
                 className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-bold transition-all ${activeChannel === 'email' ? 'bg-white text-blue-600 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
               >
                 <Mail size={20} /> Email
               </button>
               <button 
-                onClick={() => { setActiveChannel('whatsapp'); setStatus('idle'); }}
+                onClick={() => { setActiveChannel('whatsapp'); setStatus('idle'); if (pollingRef.current) clearInterval(pollingRef.current); }}
                 className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-bold transition-all ${activeChannel === 'whatsapp' ? 'bg-white text-green-600 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
               >
                 <MessageCircle size={20} /> WhatsApp
@@ -239,27 +295,105 @@ export default function HelpCenterPage() {
 
             <div className={`h-2 bg-gradient-to-r ${getChannelStyles()}`}></div>
 
-            {status === 'success' ? (
+            {/* Polling state: waiting for AI response (web form only) */}
+            {status === 'polling' ? (
+              <div className="p-12 text-center space-y-8 animate-fade-in">
+                <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-purple-50">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                </div>
+                <h2 className="text-3xl font-extrabold text-slate-900">Processing Your Request...</h2>
+                <p className="text-xl text-slate-500 max-w-md mx-auto leading-relaxed">
+                  Our AI agent is analyzing your message. The response will appear here shortly.
+                </p>
+                <div className="bg-slate-50 p-8 rounded-3xl inline-block border border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Tracking ID</p>
+                  <span className="text-3xl font-mono font-extrabold text-slate-900">{ticketId}</span>
+                </div>
+                <div className="flex items-center gap-3 justify-center text-purple-600">
+                  <div className="animate-pulse flex gap-1">
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                  </div>
+                  <span className="text-base font-semibold">AI is composing a response</span>
+                </div>
+              </div>
+
+            ) : status === 'responded' ? (
+              /* AI response received — show chat on screen (web form) */
+              <div className="p-8 md:p-12 space-y-8 animate-fade-in">
+                <div className="text-center space-y-4">
+                  <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-green-50">
+                    <CheckCircle size={40} className="text-green-600" />
+                  </div>
+                  <h2 className="text-2xl font-extrabold text-slate-900">AI Response Ready</h2>
+                  <div className="bg-slate-50 px-6 py-3 rounded-2xl inline-block border border-slate-100">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Tracking ID</p>
+                    <span className="text-xl font-mono font-extrabold text-slate-900">{ticketId}</span>
+                  </div>
+                </div>
+
+                {/* Conversation chat bubbles */}
+                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                  {conversationMessages.map((msg: any, i: number) => (
+                    <div key={i} className={`p-5 rounded-2xl text-base leading-relaxed ${
+                      msg.role === 'customer'
+                        ? 'bg-slate-50 text-slate-700 mr-12 border border-slate-100'
+                        : 'bg-purple-600 text-white ml-12 shadow-xl shadow-purple-100'
+                    }`}>
+                      <p className={`font-bold mb-2 uppercase text-xs tracking-widest ${msg.role === 'customer' ? 'text-slate-400' : 'text-purple-200'}`}>
+                        {msg.role === 'customer' ? 'You' : 'AI Assistant'}
+                      </p>
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+                  <button
+                    onClick={() => {
+                      setStatus('idle');
+                      setAgentResponse(null);
+                      setConversationMessages([]);
+                    }}
+                    className="px-10 py-4 text-white rounded-2xl font-bold text-lg hover:scale-105 transition-all shadow-xl bg-gradient-to-r from-purple-600 to-indigo-600"
+                  >
+                    Send Another Request
+                  </button>
+                  <a
+                    href={`/portal/status`}
+                    className="px-10 py-4 text-purple-600 rounded-2xl font-bold text-lg hover:bg-purple-50 transition-all border-2 border-purple-200 text-center"
+                  >
+                    Track Ticket
+                  </a>
+                </div>
+              </div>
+
+            ) : status === 'success' ? (
+              /* Email / WhatsApp success */
               <div className="p-12 text-center space-y-8 animate-fade-in">
                 <div className={`inline-flex items-center justify-center h-24 w-24 rounded-full bg-slate-50`}>
-                  <CheckCircle size={48} className={activeChannel === 'web' ? 'text-purple-600' : activeChannel === 'email' ? 'text-blue-600' : 'text-green-600'} />
+                  <CheckCircle size={48} className={activeChannel === 'email' ? 'text-blue-600' : 'text-green-600'} />
                 </div>
                 <h2 className="text-3xl font-extrabold text-slate-900">Successfully Queued!</h2>
                 <p className="text-xl text-slate-500 max-w-md mx-auto leading-relaxed">
-                  Our Kafka consumer is processing your {activeChannel} request.
+                  Our AI agent is processing your {activeChannel} request.
                 </p>
                 <div className="bg-slate-50 p-8 rounded-3xl inline-block border border-slate-100">
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Live Tracking ID</p>
                   <span className="text-3xl font-mono font-extrabold text-slate-900">{ticketId}</span>
                 </div>
 
-                {/* Email notification banner */}
+                {/* Email/WhatsApp notification banner */}
                 <div className="flex items-center gap-4 p-5 bg-green-50 border border-green-200 rounded-2xl max-w-lg mx-auto">
                   <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <Mail size={20} className="text-green-600" />
+                    {activeChannel === 'whatsapp' ? <MessageCircle size={20} className="text-green-600" /> : <Mail size={20} className="text-green-600" />}
                   </div>
                   <p className="text-base text-green-800 font-medium text-left">
-                    An email with the AI response and your tracking ID has been sent to <span className="font-bold">{formData.email || formData.phone}</span>. Check your inbox!
+                    {activeChannel === 'whatsapp'
+                      ? <>A WhatsApp response will be sent to <span className="font-bold">{formData.phone}</span>.</>
+                      : <>An email response will be sent to <span className="font-bold">{formData.email}</span>. Check your inbox!</>
+                    }
                   </p>
                 </div>
 

@@ -13,15 +13,16 @@ from production.agent.tools import get_db_conn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 5
-RETRY_BASE_DELAY = 60  # seconds (Wait full minute for quota reset)
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 65  # seconds (Wait full minute+ for quota reset)
 
 class UnifiedMessageProcessor:
     """Consumes messages from Kafka and runs the Digital FTE Agent."""
-    
+
     def __init__(self):
         self.producer = None
         self.consumer = None
+        self._recent_errors: dict[str, float] = {}  # identifier -> last_error_timestamp (dedup)
 
     async def start(self):
         self.producer = FTEKafkaProducer()
@@ -46,6 +47,16 @@ class UnifiedMessageProcessor:
             identifier = customer_email or customer_phone
 
             logger.info(f"Processing message from {channel}: {identifier}")
+
+            # 0. Dedup: skip if we recently failed for this identifier (prevents apology loop)
+            if identifier and identifier in self._recent_errors:
+                last_err_time = self._recent_errors[identifier]
+                elapsed = (datetime.now() - datetime.fromtimestamp(last_err_time)).total_seconds()
+                if elapsed < 120:  # Cooldown: 2 minutes between retries for same user
+                    logger.warning(f"[DEDUP] Skipping message from {identifier} — last error was {elapsed:.0f}s ago (cooldown 120s)")
+                    return
+                else:
+                    del self._recent_errors[identifier]  # Cooldown expired, allow retry
 
             # 1. Resolve Customer ID from DB (with cross-channel identity matching)
             customer_id = await self.resolve_customer(
@@ -252,33 +263,47 @@ class UnifiedMessageProcessor:
 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
-            # Send apologetic response to customer via email/whatsapp AND metrics topic
+
+            # Record error timestamp to prevent apology→webhook→retry loop
+            err_identifier = message.get("email") or message.get("customer_email") or message.get("sender")
+            if err_identifier:
+                self._recent_errors[err_identifier] = datetime.now().timestamp()
+
+            # Determine if this is a rate limit error (don't spam apologies for quota issues)
+            err_str = str(e)
+            is_quota_error = any(x in err_str for x in ["429", "RESOURCE_EXHAUSTED", "quota", "rate_limit"])
+
             try:
-                apology = (
-                    "Dear Customer,\n\n"
-                    "We sincerely apologize for the inconvenience. Our system encountered "
-                    "a temporary issue processing your request. A human agent has been notified "
-                    "and will follow up with you shortly.\n\n"
-                    "Thank you for your patience.\n\n"
-                    "Sincerely,\nThe SaaSFlow Support Team"
-                )
                 err_channel = message.get("channel", "unknown")
                 err_email = message.get("email") or message.get("customer_email")
                 err_phone = message.get("sender")
 
-                # Actually deliver the apology to the customer
-                await self._fallback_deliver(err_channel, err_email, err_phone, apology)
+                if is_quota_error:
+                    # Rate limit: DON'T send apology (it triggers webhook loops on WhatsApp)
+                    # Just log the metric silently
+                    logger.warning(f"[QUOTA] All keys exhausted for {err_identifier}. Skipping apology to avoid loop.")
+                else:
+                    # Non-quota error: send apology
+                    apology = (
+                        "Dear Customer,\n\n"
+                        "We sincerely apologize for the inconvenience. Our system encountered "
+                        "a temporary issue processing your request. A human agent has been notified "
+                        "and will follow up with you shortly.\n\n"
+                        "Thank you for your patience.\n\n"
+                        "Sincerely,\nThe SaaSFlow Support Team"
+                    )
+                    await self._fallback_deliver(err_channel, err_email, err_phone, apology)
 
                 await self.producer.publish("fte.metrics", {
                     "event_type": "error_response",
                     "channel": err_channel,
                     "customer_email": err_email or "unknown",
-                    "apology_message": apology,
-                    "error": str(e),
+                    "error": err_str[:200],
+                    "is_quota_error": is_quota_error,
                     "status": "error"
                 })
             except Exception as inner_e:
-                logger.error(f"Failed to send error apology: {inner_e}")
+                logger.error(f"Failed to send error metric: {inner_e}")
 
     async def _fallback_deliver(self, channel: str, email: str, phone: str, message: str):
         """Fallback delivery when agent doesn't call send_response tool."""
@@ -289,8 +314,31 @@ class UnifiedMessageProcessor:
                 resp = await wa.send_message(phone, message)
                 print(f"[FALLBACK] WhatsApp sent to {phone}: {resp}")
 
+            elif channel == "web_form":
+                # Web form: response is already saved to DB via log_message,
+                # frontend polls and displays it on-screen — no email needed
+                print(f"[FALLBACK] Web form response saved to DB for on-screen display")
+                # Save the response to messages table so frontend can poll it
+                msg_ticket_id = None
+                conn = await get_db_conn()
+                try:
+                    # Find the latest conversation for this email
+                    if email:
+                        conv_id = await conn.fetchval(
+                            "SELECT c.id FROM conversations c "
+                            "JOIN customers cu ON c.customer_id = cu.id "
+                            "WHERE cu.email = $1 AND c.initial_channel = 'web_form' "
+                            "ORDER BY c.started_at DESC LIMIT 1",
+                            email
+                        )
+                        if conv_id:
+                            from production.agent.tools import log_message
+                            await log_message(conn, conv_id, "web_form", "outbound", "agent", message, "sent")
+                finally:
+                    await conn.close()
+
             elif email:
-                # For email, web_form, or any channel — send email if we have one
+                # For email channel — send email
                 from production.channels.gmail_handler import GmailHandler
                 gmail = GmailHandler()
                 resp = await gmail.send_email_smtp(email, "SaaSFlow Support Response", message)

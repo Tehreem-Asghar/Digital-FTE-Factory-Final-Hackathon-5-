@@ -66,6 +66,7 @@ The Digital FTE is a multi-channel AI-powered customer success agent system cons
 | **Event Bus** | Apache Kafka | Async message queue between API and workers |
 | **Dashboard** | Next.js 16 + Tailwind CSS | Admin analytics, ticket/customer management |
 | **Recovery Worker** | Python async | Drains `pending_ingestion` table when Kafka recovers |
+| **Learning Worker** | Python async | Extracts patterns from resolved tickets into `resolution_learnings` |
 
 ## 2. Common Operations
 
@@ -95,7 +96,13 @@ npm run dev
 # Dashboard runs on http://localhost:3000
 ```
 
-### 2.5 Monitoring Logs (Kubernetes)
+### 2.5 Starting the Learning Worker
+```bash
+uv run python -m production.workers.learning_worker
+# Processes resolved tickets every 60 seconds
+```
+
+### 2.6 Monitoring Logs (Kubernetes)
 - **API Logs**: `kubectl logs -l component=api -n customer-success-fte`
 - **Worker Logs**: `kubectl logs -l component=worker -n customer-success-fte`
 
@@ -109,6 +116,18 @@ curl http://localhost:8000/metrics/channels
 
 # Metrics summary
 curl http://localhost:8000/metrics/summary
+
+# Daily sentiment report (last 7 days)
+curl http://localhost:8000/api/reports/sentiment/daily?days=7
+
+# Today's sentiment snapshot
+curl http://localhost:8000/api/reports/sentiment/today
+
+# Trigger learning extraction from resolved tickets
+curl -X POST http://localhost:8000/api/learnings/process
+
+# Search past resolutions
+curl "http://localhost:8000/api/learnings/search?query=billing+issue"
 ```
 
 Monitor the `agent_metrics` table for:

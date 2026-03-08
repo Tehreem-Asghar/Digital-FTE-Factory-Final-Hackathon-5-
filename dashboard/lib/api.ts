@@ -39,4 +39,10 @@ export const api = {
   }),
   getMetricsSummary: () => fetchApi('/metrics/summary'),
   getMetricsChannels: () => fetchApi('/metrics/channels'),
+  getSentimentReport: (days: number = 7) => fetchApi(`/api/reports/sentiment/daily?days=${days}`),
+  getTodaySentiment: () => fetchApi('/api/reports/sentiment/today'),
+  getLearnings: (category?: string) => fetchApi(`/api/learnings${category ? `?category=${category}` : ''}`),
+  searchLearnings: (query: string) => fetchApi(`/api/learnings/search?query=${encodeURIComponent(query)}`),
+  triggerLearning: () => fetchApi('/api/learnings/process', { method: 'POST' }),
+  getTicketStatus: (ticketId: string) => fetchApi(`/support/ticket/${ticketId}`),
 };

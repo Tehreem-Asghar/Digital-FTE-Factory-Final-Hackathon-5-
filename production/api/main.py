@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
 import logging
+from datetime import datetime
 from production.utils.kafka_client import FTEKafkaProducer
 from production.channels.web_form_handler import router as web_form_router
 from production.channels.whatsapp_handler import WhatsAppHandler
@@ -498,3 +499,146 @@ async def get_metrics_summary():
         total = await conn.fetchrow("SELECT COUNT(*) as total_events, ROUND(AVG(metric_value)::numeric, 2) as avg_latency_ms FROM agent_metrics WHERE metric_name = 'message_processed'")
         return {"status": "ok", "total_messages_processed": total["total_events"], "avg_latency_ms": float(total["avg_latency_ms"] or 0)}
     finally: await conn.close()
+
+
+# --- Daily Sentiment Reports ---
+
+@app.get("/api/reports/sentiment/daily")
+async def get_daily_sentiment_report(days: int = Query(default=7, ge=1, le=90)):
+    """Generate daily sentiment report with per-channel breakdown and trends."""
+    conn = await get_db_conn()
+    try:
+        # Daily averages across all channels
+        daily_overall = await conn.fetch("""
+            SELECT DATE(started_at) as date,
+                   ROUND(AVG(sentiment_score)::numeric, 3) as avg_sentiment,
+                   COUNT(*) as conversation_count,
+                   SUM(CASE WHEN sentiment_score < 0.3 THEN 1 ELSE 0 END) as angry_count,
+                   SUM(CASE WHEN sentiment_score >= 0.3 AND sentiment_score < 0.6 THEN 1 ELSE 0 END) as concerned_count,
+                   SUM(CASE WHEN sentiment_score >= 0.6 THEN 1 ELSE 0 END) as satisfied_count
+            FROM conversations
+            WHERE sentiment_score IS NOT NULL
+              AND started_at >= NOW() - INTERVAL '1 day' * $1
+            GROUP BY DATE(started_at)
+            ORDER BY DATE(started_at) DESC
+        """, days)
+
+        # Per-channel daily breakdown
+        channel_breakdown = await conn.fetch("""
+            SELECT DATE(started_at) as date,
+                   initial_channel as channel,
+                   ROUND(AVG(sentiment_score)::numeric, 3) as avg_sentiment,
+                   COUNT(*) as count
+            FROM conversations
+            WHERE sentiment_score IS NOT NULL
+              AND started_at >= NOW() - INTERVAL '1 day' * $1
+            GROUP BY DATE(started_at), initial_channel
+            ORDER BY DATE(started_at) DESC, initial_channel
+        """, days)
+
+        # Overall summary stats
+        summary = await conn.fetchrow("""
+            SELECT ROUND(AVG(sentiment_score)::numeric, 3) as overall_avg,
+                   ROUND(MIN(sentiment_score)::numeric, 3) as worst_day_score,
+                   ROUND(MAX(sentiment_score)::numeric, 3) as best_day_score,
+                   COUNT(*) as total_conversations,
+                   SUM(CASE WHEN sentiment_score < 0.3 THEN 1 ELSE 0 END) as total_angry,
+                   ROUND((SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*), 0) * 100), 1) as escalation_rate_pct
+            FROM conversations
+            WHERE sentiment_score IS NOT NULL
+              AND started_at >= NOW() - INTERVAL '1 day' * $1
+        """, days)
+
+        return {
+            "report_period_days": days,
+            "generated_at": datetime.utcnow().isoformat(),
+            "summary": dict(summary) if summary else {},
+            "daily_trends": [dict(r) for r in daily_overall],
+            "channel_breakdown": [dict(r) for r in channel_breakdown],
+        }
+    finally:
+        await conn.close()
+
+
+@app.get("/api/reports/sentiment/today")
+async def get_today_sentiment():
+    """Quick snapshot of today's sentiment across channels."""
+    conn = await get_db_conn()
+    try:
+        today = await conn.fetch("""
+            SELECT initial_channel as channel,
+                   ROUND(AVG(sentiment_score)::numeric, 3) as avg_sentiment,
+                   COUNT(*) as conversations,
+                   SUM(CASE WHEN sentiment_score < 0.3 THEN 1 ELSE 0 END) as angry,
+                   SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated
+            FROM conversations
+            WHERE sentiment_score IS NOT NULL
+              AND DATE(started_at) = CURRENT_DATE
+            GROUP BY initial_channel
+        """)
+
+        overall = await conn.fetchrow("""
+            SELECT ROUND(AVG(sentiment_score)::numeric, 3) as avg_sentiment,
+                   COUNT(*) as total_conversations
+            FROM conversations
+            WHERE sentiment_score IS NOT NULL AND DATE(started_at) = CURRENT_DATE
+        """)
+
+        return {
+            "date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "overall": dict(overall) if overall else {"avg_sentiment": 0, "total_conversations": 0},
+            "by_channel": [dict(r) for r in today],
+        }
+    finally:
+        await conn.close()
+
+
+# --- Learn from Resolved Tickets ---
+
+@app.post("/api/learnings/process")
+async def trigger_learning_process():
+    """Manually trigger extraction of learnings from resolved tickets."""
+    from production.workers.learning_worker import process_resolved_tickets
+    try:
+        count = await process_resolved_tickets()
+        return {"status": "ok", "new_learnings_extracted": count}
+    except Exception as e:
+        logger.error(f"Learning process failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/learnings")
+async def get_learnings(category: str = None, limit: int = Query(default=20, ge=1, le=100)):
+    """Retrieve extracted resolution learnings, optionally filtered by category."""
+    conn = await get_db_conn()
+    try:
+        if category:
+            rows = await conn.fetch("""
+                SELECT rl.id, rl.issue_category, rl.issue_summary, rl.resolution_summary,
+                       rl.source_channel, rl.resolution_time_hours, rl.was_escalated,
+                       rl.keywords, rl.created_at, t.status as ticket_status
+                FROM resolution_learnings rl
+                LEFT JOIN tickets t ON rl.ticket_id = t.id
+                WHERE rl.issue_category = $1
+                ORDER BY rl.created_at DESC LIMIT $2
+            """, category, limit)
+        else:
+            rows = await conn.fetch("""
+                SELECT rl.id, rl.issue_category, rl.issue_summary, rl.resolution_summary,
+                       rl.source_channel, rl.resolution_time_hours, rl.was_escalated,
+                       rl.keywords, rl.created_at, t.status as ticket_status
+                FROM resolution_learnings rl
+                LEFT JOIN tickets t ON rl.ticket_id = t.id
+                ORDER BY rl.created_at DESC LIMIT $1
+            """, limit)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+@app.get("/api/learnings/search")
+async def search_similar_resolutions(query: str = Query(..., min_length=3), limit: int = Query(default=3, ge=1, le=10)):
+    """Search past resolution learnings by semantic similarity to find how similar issues were resolved."""
+    from production.workers.learning_worker import get_similar_resolutions
+    results = await get_similar_resolutions(query, limit)
+    return {"query": query, "similar_resolutions": results}

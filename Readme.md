@@ -57,6 +57,18 @@ A production-ready CRM and ticket management system that processes customer supp
 - **Metrics Dashboard**: Per-channel latency, escalation rates, throughput
 - **Structured Logging**: JSON logs for easy aggregation
 
+### Daily Sentiment Reports
+- **Real-time Sentiment Tracking**: Every customer message scored (0.0-1.0) using keyword analysis + Gemini AI
+- **Daily Trend Reports**: Aggregated sentiment data with per-channel breakdown
+- **Dashboard Visualization**: Sentiment trends, angry/satisfied counts, escalation rates on Analytics page
+- **API Endpoints**: `GET /api/reports/sentiment/daily` and `GET /api/reports/sentiment/today`
+
+### Learn from Resolved Tickets
+- **Automatic Learning**: Background worker extracts patterns from resolved tickets using AI
+- **Resolution Knowledge Base**: Stores issue summaries, resolutions, categories, and keywords with vector embeddings
+- **Semantic Search**: Find how similar issues were resolved in the past via `GET /api/learnings/search`
+- **Feedback Loop**: Resolution learnings improve future agent responses over time
+
 ---
 
 ## 🏗️ Architecture
@@ -361,6 +373,21 @@ Once the API server is running, access:
 | `GET` | `/metrics/channels` | Per-channel metrics |
 | `GET` | `/metrics/summary` | Overall metrics summary |
 | `GET` | `/customers/lookup` | Customer lookup by email/phone |
+
+#### Sentiment Reports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/reports/sentiment/daily?days=7` | Daily sentiment report with trends |
+| `GET` | `/api/reports/sentiment/today` | Today's sentiment snapshot by channel |
+
+#### Resolution Learnings
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/learnings/process` | Trigger learning extraction from resolved tickets |
+| `GET` | `/api/learnings?category=billing` | List extracted learnings (optional category filter) |
+| `GET` | `/api/learnings/search?query=...` | Semantic search over past resolutions |
 
 ### Example: Submit a Ticket
 

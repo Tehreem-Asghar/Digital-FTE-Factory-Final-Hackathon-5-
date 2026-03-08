@@ -421,7 +421,12 @@ async def send_response(input: ResponseInput) -> str:
                 delivery_error = "No phone number found for WhatsApp delivery"
                 print("[ERROR] No target phone found for this customer.")
 
-        elif channel.lower() in ("email", "web_form"):
+        elif channel.lower() == "web_form":
+            # Web form: response is displayed on-screen via polling, no email needed
+            print(f"[WEB_FORM] Response saved to DB for on-screen display (ticket {input.ticket_id})")
+            delivery_status = "sent"
+
+        elif channel.lower() == "email":
             if customer_email:
                 try:
                     gmail = GmailHandler()
